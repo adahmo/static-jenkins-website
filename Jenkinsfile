@@ -1,6 +1,10 @@
 pipeline {
   agent any
 
+  options {
+    skipDefaultCheckout(true)
+  }
+
   parameters {
     string(name: 'DOCKER_IMAGE', defaultValue: 'your-dockerhub-user/2098-health', description: 'Docker Hub image name without tag')
     string(name: 'DOCKERHUB_USERNAME', defaultValue: '', description: 'Docker Hub username')
