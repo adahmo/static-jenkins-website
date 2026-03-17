@@ -3,6 +3,8 @@ pipeline {
 
   parameters {
     string(name: 'DOCKER_IMAGE', defaultValue: 'your-dockerhub-user/2098-health', description: 'Docker Hub image name without tag')
+    string(name: 'DOCKERHUB_USERNAME', defaultValue: '', description: 'Docker Hub username')
+    password(name: 'DOCKERHUB_PASSWORD', defaultValue: '', description: 'Docker Hub password or access token')
   }
 
   environment {
@@ -27,8 +29,16 @@ pipeline {
         '''
 
         script {
-          if (params.DOCKER_IMAGE == 'adamumj/2098-health/2098-health') {
-            error('Set DOCKER_IMAGE to your real Docker Hub repo, for example: adamumj/2098-health/2098-health')
+          if (params.DOCKER_IMAGE == 'your-dockerhub-user/2098-health') {
+            error('Set DOCKER_IMAGE to your real Docker Hub repo, for example: <dockerhub-user>/2098-health')
+          }
+
+          if (!params.DOCKERHUB_USERNAME?.trim()) {
+            error('Set DOCKERHUB_USERNAME in Build with Parameters.')
+          }
+
+          if (!params.DOCKERHUB_PASSWORD?.trim()) {
+            error('Set DOCKERHUB_PASSWORD in Build with Parameters.')
           }
         }
       }
@@ -37,15 +47,12 @@ pipeline {
     stage('Docker Build and Push') {
       steps {
         sh '''
-          set -eux
-          if [ ! -f "${HOME}/.docker/config.json" ]; then
-            echo "Docker Hub login not found for Jenkins user. Run once on the EC2 host: sudo -u jenkins -H docker login"
-            exit 1
-          fi
-          docker build -t ${DOCKER_IMAGE}:${IMAGE_TAG} .
-          docker tag ${DOCKER_IMAGE}:${IMAGE_TAG} ${DOCKER_IMAGE}:latest
-          docker push ${DOCKER_IMAGE}:${IMAGE_TAG}
-          docker push ${DOCKER_IMAGE}:latest
+          set -eu
+          printf '%s' "${DOCKERHUB_PASSWORD}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
+          docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+          docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+          docker push ${IMAGE_NAME}:${IMAGE_TAG}
+          docker push ${IMAGE_NAME}:latest
         '''
       }
     }
@@ -63,7 +70,7 @@ pipeline {
 
   post {
     always {
-      sh 'echo "Keeping Docker login session for next runs"'
+      sh 'docker logout || true'
     }
   }
 }
