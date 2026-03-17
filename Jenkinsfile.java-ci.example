@@ -1,0 +1,70 @@
+pipeline {
+  agent any
+
+  parameters {
+    string(name: 'DOCKER_IMAGE', defaultValue: 'your-dockerhub-user/2098-health', description: 'Docker Hub image name without tag')
+  }
+
+  environment {
+    IMAGE_NAME     = "${params.DOCKER_IMAGE}"
+    IMAGE_TAG      = "${BUILD_NUMBER}"
+    SONAR_HOST_URL = "http://localhost:9000"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Maven Build') {
+      steps {
+        sh 'mvn -B clean verify'
+      }
+    }
+
+    stage('SonarQube Analysis') {
+      steps {
+        withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+          sh '''
+            mvn -B sonar:sonar \
+              -Dsonar.host.url=${SONAR_HOST_URL} \
+              -Dsonar.login=${SONAR_TOKEN}
+          '''
+        }
+      }
+    }
+
+    stage('Docker Build and Push') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASS')]) {
+          sh '''
+            set -eux
+            echo "${DOCKERHUB_PASS}" | docker login -u "${DOCKERHUB_USER}" --password-stdin
+            docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+            docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+            docker push ${IMAGE_NAME}:${IMAGE_TAG}
+            docker push ${IMAGE_NAME}:latest
+          '''
+        }
+      }
+    }
+
+    stage('Deploy to k3s') {
+      steps {
+        sh '''
+          set -eux
+          sed "s|your-dockerhub-user/2098-health|${IMAGE_NAME}|g" k8s/health-app.yaml | kubectl apply -f -
+          kubectl -n health-app rollout status deployment/health-app --timeout=180s
+        '''
+      }
+    }
+  }
+
+  post {
+    always {
+      sh 'docker logout || true'
+    }
+  }
+}

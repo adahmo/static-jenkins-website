@@ -1,0 +1,112 @@
+#!/bin/bash
+set -euxo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update -y
+apt-get upgrade -y
+apt-get install -y \
+  apt-transport-https \
+  ca-certificates \
+  curl \
+  git \
+  gnupg \
+  lsb-release \
+  software-properties-common \
+  unzip \
+  openjdk-17-jdk \
+  maven
+
+# Docker Engine + Compose
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+chmod a+r /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $${VERSION_CODENAME}) stable" \
+  | tee /etc/apt/sources.list.d/docker.list > /dev/null
+apt-get update -y
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+systemctl enable docker
+systemctl start docker
+usermod -aG docker ubuntu
+
+# Jenkins LTS
+gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 7198F4B714ABFC68
+gpg --export 7198F4B714ABFC68 | tee /usr/share/keyrings/jenkins-keyring.gpg > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/jenkins-keyring.gpg] https://pkg.jenkins.io/debian-stable binary/" \
+  | tee /etc/apt/sources.list.d/jenkins.list > /dev/null
+apt-get update -y
+apt-get install -y jenkins
+usermod -aG docker jenkins
+
+if command -v jenkins-plugin-cli >/dev/null 2>&1; then
+  jenkins-plugin-cli --plugins \
+    workflow-aggregator \
+    git \
+    credentials-binding \
+    docker-workflow \
+    pipeline-stage-view \
+    sonar \
+    kubernetes-cli
+fi
+
+systemctl enable jenkins
+systemctl restart jenkins
+
+# Kernel params required by SonarQube
+cat <<'EOF' > /etc/sysctl.d/99-sonarqube.conf
+vm.max_map_count=262144
+fs.file-max=65536
+EOF
+sysctl --system
+
+# SonarQube + PostgreSQL on Docker
+mkdir -p /opt/sonarqube
+cat <<'EOF' > /opt/sonarqube/docker-compose.yml
+services:
+  sonarqube:
+    image: sonarqube:community
+    container_name: sonarqube
+    depends_on:
+      - db
+    ports:
+      - "9000:9000"
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://db:5432/sonar
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: sonar
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_logs:/opt/sonarqube/logs
+      - sonarqube_extensions:/opt/sonarqube/extensions
+
+  db:
+    image: postgres:15
+    container_name: sonar-db
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar
+      POSTGRES_DB: sonar
+    volumes:
+      - sonar_postgresql:/var/lib/postgresql/data
+
+volumes:
+  sonarqube_data:
+  sonarqube_logs:
+  sonarqube_extensions:
+  sonar_postgresql:
+EOF
+
+docker compose -f /opt/sonarqube/docker-compose.yml up -d
+
+# Lightweight Kubernetes cluster (k3s)
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode 644" sh -
+
+mkdir -p /home/ubuntu/.kube
+cp /etc/rancher/k3s/k3s.yaml /home/ubuntu/.kube/config
+chown -R ubuntu:ubuntu /home/ubuntu/.kube
+
+mkdir -p /var/lib/jenkins/.kube
+cp /etc/rancher/k3s/k3s.yaml /var/lib/jenkins/.kube/config
+chown -R jenkins:jenkins /var/lib/jenkins/.kube
+
+systemctl restart jenkins
