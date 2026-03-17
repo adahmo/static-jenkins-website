@@ -22,7 +22,9 @@ pipeline {
         sh '''
           set -eux
           test -f index.html
-        }
+          test -f Dockerfile
+          test -f k8s/health-app.yaml
+        '''
       }
     }
 
