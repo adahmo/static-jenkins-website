@@ -40,10 +40,6 @@ pipeline {
           if (!params.DOCKERHUB_USERNAME?.trim()) {
             error('Set DOCKERHUB_USERNAME in Build with Parameters.')
           }
-
-          if (!params.DOCKERHUB_PASSWORD?.trim()) {
-            error('Set DOCKERHUB_PASSWORD in Build with Parameters.')
-          }
         }
       }
     }
@@ -52,6 +48,10 @@ pipeline {
       steps {
         sh '''
           set -eu
+          if [ -z "${DOCKERHUB_PASSWORD:-}" ]; then
+            echo "Set DOCKERHUB_PASSWORD in Build with Parameters."
+            exit 1
+          fi
           printf '%s' "${DOCKERHUB_PASSWORD}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
           docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
           docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
