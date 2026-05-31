@@ -43,7 +43,7 @@ pipeline {
         }
       }
     }
-  }
+  
     stage('Docker Build and Push') {
       steps {
         sh '''
@@ -61,16 +61,16 @@ pipeline {
       }
     }
   
-   // stage('Deploy to k3s') {
-     // steps {
-      //  sh '''
-       // set -eux
-       //  sed "s|your-dockerhub-user/2098-health|${IMAGE_NAME}|g" k8s/health-app.yaml | kubectl apply -f -
-        //  kubectl -n health-app rollout status deployment/health-app --timeout=300s
-      //  '''
- //     }
- //   }
-//  }
+    stage('Deploy to k3s') {
+      steps {
+        sh '''
+        set -eux
+        sed "s|your-dockerhub-user/2098-health|${IMAGE_NAME}|g" k8s/health-app.yaml | kubectl apply -f -
+        kubectl -n health-app rollout status deployment/health-app --timeout=300s
+        '''
+       } 
+     }
+  }
 
   post {
     always {
