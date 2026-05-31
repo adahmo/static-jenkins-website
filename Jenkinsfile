@@ -43,7 +43,7 @@ pipeline {
         }
       }
     }
-
+  }
     stage('Docker Build and Push') {
       steps {
         sh '''
@@ -60,7 +60,7 @@ pipeline {
         '''
       }
     }
-
+  
    // stage('Deploy to k3s') {
      // steps {
       //  sh '''
